@@ -10,14 +10,13 @@ permissions:
   contents: read
 
 jobs:
-
   build-and-push:
 
     runs-on: ubuntu-latest
 
     steps:
 
-      # 1. GitHub repository ka code runner mein aayega
+      # 1. GitHub repository ka code runner mein checkout hoga
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -31,38 +30,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Debug GitHub OIDC
-        run: |
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Ref: $GITHUB_REF"
-          echo "Event: $GITHUB_EVENT_NAME"
+      # 4. GitHub OIDC token ke claims check karenge
+      - name: Debug OIDC Token
+        uses: github/actions-oidc-debugger@main
 
-      # 4. AWS mein OIDC ke through loginn
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: eu-north-1
+      # 5. AWS authentication
+      # TEMPORARILY COMMENTED.
+      # OIDC sub claim milne ke baad isko wapas enable karenge.
 
-      # 5. ECR login
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      # - name: Configure AWS credentials
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      #     aws-region: eu-north-1
 
-      # 6. Docker image build
-      - name: Build Docker image
-        run: |
-          docker build -t user-service:${{ github.sha }} .
+      # 6. ECR login
+      # TEMPORARILY COMMENTED
 
-      # 7. Docker image ko ECR repository ke naam se tag karna
-      - name: Tag Docker image
-        run: |
-          docker tag \
-            user-service:${{ github.sha }} \
-            ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
+      # - name: Login to Amazon ECR
+      #   id: login-ecr
+      #   uses: aws-actions/amazon-ecr-login@v2
 
-      # 8. Docker image ECR mein push
-      - name: Push Docker image to ECR
-        run: |
-          docker push \
-            ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
+      # 7. Docker image build
+      # TEMPORARILY COMMENTED
+
+      # - name: Build Docker image
+      #   run: |
+      #     docker build -t user-service:${{ github.sha }} .
+
+      # 8. Docker image ko ECR ke naam se tag karenge
+      # TEMPORARILY COMMENTED
+
+      # - name: Tag Docker image
+      #   run: |
+      #     docker tag \
+      #       user-service:${{ github.sha }} \
+      #       ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
+
+      # 9. ECR mein Docker image push karenge
+      # TEMPORARILY COMMENTED
+
+      # - name: Push Docker image to ECR
+      #   run: |
+      #     docker push \
+      #       ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
