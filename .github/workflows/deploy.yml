@@ -16,7 +16,7 @@ jobs:
 
     steps:
 
-      # 1. GitHub repository ka code runner mein checkout hoga
+      # 1. GitHub repository ka code runner mein aayega
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -30,13 +30,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # 4. GitHub OIDC token ke claims check karenge
-      - name: Debug OIDC Token
-        uses: github/actions-oidc-debugger@main
+      # 4. GitHub OIDC token se actual "sub" claim nikalna
+      - name: Check GitHub OIDC subject
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+        run: |
+          echo "Requesting GitHub OIDC token..."
 
-      # 5. AWS authentication
-      # TEMPORARILY COMMENTED.
-      # OIDC sub claim milne ke baad isko wapas enable karenge.
+          TOKEN_RESPONSE=$(curl -s \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
+
+          TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
+
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "OIDC token could not be obtained"
+            exit 1
+          fi
+
+          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2)
+
+          PAYLOAD=$(python3 -c "
+          import base64
+          import sys
+          data = sys.stdin.read().strip()
+          data += '=' * (-len(data) % 4)
+          print(base64.urlsafe_b64decode(data).decode())
+          " <<< "$PAYLOAD")
+
+          echo "GitHub OIDC subject:"
+          echo "$PAYLOAD" | jq -r '.sub'
+
+      # AWS authentication temporarily disabled
+      # Pehle actual sub claim check karenge.
 
       # - name: Configure AWS credentials
       #   uses: aws-actions/configure-aws-credentials@v4
@@ -44,31 +71,21 @@ jobs:
       #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       #     aws-region: eu-north-1
 
-      # 6. ECR login
-      # TEMPORARILY COMMENTED
+      # ECR steps baad mein enable karenge.
 
       # - name: Login to Amazon ECR
       #   id: login-ecr
       #   uses: aws-actions/amazon-ecr-login@v2
 
-      # 7. Docker image build
-      # TEMPORARILY COMMENTED
-
       # - name: Build Docker image
       #   run: |
       #     docker build -t user-service:${{ github.sha }} .
-
-      # 8. Docker image ko ECR ke naam se tag karenge
-      # TEMPORARILY COMMENTED
 
       # - name: Tag Docker image
       #   run: |
       #     docker tag \
       #       user-service:${{ github.sha }} \
       #       ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
-
-      # 9. ECR mein Docker image push karenge
-      # TEMPORARILY COMMENTED
 
       # - name: Push Docker image to ECR
       #   run: |
