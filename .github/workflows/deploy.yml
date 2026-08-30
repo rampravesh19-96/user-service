@@ -16,78 +16,139 @@ jobs:
 
     steps:
 
-      # 1. GitHub repository ka code runner mein aayega
+      # =========================================================
+      # 1. GitHub repository ka code runner machine mein aayega
+      # =========================================================
       - name: Checkout code
         uses: actions/checkout@v4
 
+
+      # =========================================================
       # 2. Node.js setup
+      # =========================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # 3. Dependencies install
+
+      # =========================================================
+      # 3. Node dependencies install
+      # =========================================================
       - name: Install dependencies
         run: npm ci
 
-      # 4. GitHub OIDC token se actual "sub" claim nikalna
-      - name: Check GitHub OIDC subject
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+
+      # =========================================================
+      # 4. DEBUG OIDC TOKEN
+      #
+      # Ye step humne OIDC ka actual "sub" claim check
+      # karne ke liye use kiya tha.
+      #
+      # Ab problem identify ho chuki hai, isliye temporarily
+      # comment kiya hua hai.
+      #
+      # Actual sub:
+      # repo:rampravesh19-96@64700001/user-service@1351666826:ref:refs/heads/main
+      # =========================================================
+
+      # - name: Check GitHub OIDC Subject
+      #   env:
+      #     ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+      #     ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+      #   run: |
+      #     echo "Requesting GitHub OIDC token..."
+      #
+      #     TOKEN_RESPONSE=$(curl -s \
+      #       -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+      #       "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
+      #
+      #     TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
+      #
+      #     if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+      #       echo "OIDC token could not be obtained"
+      #       exit 1
+      #     fi
+      #
+      #     PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2)
+      #
+      #     PAYLOAD=$(python3 -c "
+      #     import base64
+      #     import sys
+      #     data = sys.stdin.read().strip()
+      #     data += '=' * (-len(data) % 4)
+      #     print(base64.urlsafe_b64decode(data).decode())
+      #     " <<< "$PAYLOAD")
+      #
+      #     echo "GitHub OIDC subject:"
+      #     echo "$PAYLOAD" | jq -r '.sub'
+
+
+      # =========================================================
+      # 5. AWS authentication
+      #
+      # GitHub OIDC
+      #       ↓
+      # AWS IAM Role
+      #       ↓
+      # Temporary AWS credentials
+      # =========================================================
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-north-1
+
+
+      # =========================================================
+      # 6. Amazon ECR login
+      # =========================================================
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # =========================================================
+      # 7. Docker image build
+      #
+      # GitHub Actions runner par:
+      #
+      # Dockerfile
+      #     ↓
+      # Docker Image
+      # =========================================================
+
+      - name: Build Docker image
         run: |
-          echo "Requesting GitHub OIDC token..."
+          docker build -t user-service:${{ github.sha }} .
 
-          TOKEN_RESPONSE=$(curl -s \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
 
-          TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
+      # =========================================================
+      # 8. Docker image ko ECR repository ke naam se tag karna
+      #
+      # Example:
+      #
+      # user-service:abc123
+      #
+      # becomes:
+      #
+      # AWS_ECR_URL/user-service:abc123
+      # =========================================================
 
-          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
-            echo "OIDC token could not be obtained"
-            exit 1
-          fi
+      - name: Tag Docker image
+        run: |
+          docker tag \
+            user-service:${{ github.sha }} \
+            ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
 
-          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2)
 
-          PAYLOAD=$(python3 -c "
-          import base64
-          import sys
-          data = sys.stdin.read().strip()
-          data += '=' * (-len(data) % 4)
-          print(base64.urlsafe_b64decode(data).decode())
-          " <<< "$PAYLOAD")
+      # =========================================================
+      # 9. Docker image ECR mein push
+      # =========================================================
 
-          echo "GitHub OIDC subject:"
-          echo "$PAYLOAD" | jq -r '.sub'
-
-      # AWS authentication temporarily disabled
-      # Pehle actual sub claim check karenge.
-
-      # - name: Configure AWS credentials
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      #     aws-region: eu-north-1
-
-      # ECR steps baad mein enable karenge.
-
-      # - name: Login to Amazon ECR
-      #   id: login-ecr
-      #   uses: aws-actions/amazon-ecr-login@v2
-
-      # - name: Build Docker image
-      #   run: |
-      #     docker build -t user-service:${{ github.sha }} .
-
-      # - name: Tag Docker image
-      #   run: |
-      #     docker tag \
-      #       user-service:${{ github.sha }} \
-      #       ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
-
-      # - name: Push Docker image to ECR
-      #   run: |
-      #     docker push \
-      #       ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
+      - name: Push Docker image to ECR
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
