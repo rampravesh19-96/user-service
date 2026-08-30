@@ -1,28 +1,62 @@
-name: User Service CI
+name: User Service CI/CD
 
 on:
   push:
     branches:
       - main
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
 
-  test:
+  build-and-push:
 
     runs-on: ubuntu-latest
 
     steps:
 
+      # 1. GitHub repository ka code runner mein aayega
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. Node.js setup
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      # 3. Dependencies install
       - name: Install dependencies
         run: npm ci
 
+      # 4. AWS mein OIDC ke through login
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-north-1
+
+      # 5. ECR login
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 6. Docker image build
       - name: Build Docker image
-        run: docker build -t user-service .
+        run: |
+          docker build -t user-service:${{ github.sha }} .
+
+      # 7. Docker image ko ECR repository ke naam se tag karna
+      - name: Tag Docker image
+        run: |
+          docker tag \
+            user-service:${{ github.sha }} \
+            ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
+
+      # 8. Docker image ECR mein push
+      - name: Push Docker image to ECR
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/user-service:${{ github.sha }}
